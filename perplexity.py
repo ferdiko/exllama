@@ -8,6 +8,9 @@ import os
 import sys
 import torch
 import torch.nn.functional as F
+from llama_helpers import *
+import numpy as np
+
 
 '''
 Passing in model, cache, tokenizer is a total hack because we don't want to have to reinitialize (or move all the globals into a shared state model)
@@ -88,54 +91,106 @@ class Perplexity:
                 if chunk_truncate is not None: chunk = chunk[:, :chunk_truncate]
                 self.dataset_chunks.append(chunk)
 
+    @staticmethod
+    def certainty(preds):
+        scores_sorted = sorted(preds)
+        scores_sorted = np.array(scores_sorted)
+        probabilities = scores_sorted / scores_sorted.sum()
+        return probabilities[3] - probabilities[2]
+
+
+    @staticmethod
+    def evaluate_thresholding(corr_samples, incorr_samples, num_threshs=100):
+        """
+        Given a list of certainties for all correctly predicted samples and one
+        for all incorrectly predicted samples, try different thresholds to see
+        how many samples would be forwarded to the next model vs. how many incorrectly
+        predicted samples would be forwarded to the next model.
+        :param corr_samples:
+        :param incorr_samples:
+        :param num_threshs:
+        :return:
+        """
+        # Generate a range of thresholds to test
+        minv = min(min(corr_samples), min(incorr_samples))
+        maxv = max(max(corr_samples), max(incorr_samples))
+        thresholds = np.linspace(minv, maxv, num_threshs)
+
+        results = []
+        for threshold in thresholds:
+            incorr_fwd = 0
+            total_fwd = 0
+            total = len(incorr_samples)
+
+            # Check how many samples from the correctly predicted would be forwarded
+            for num in corr_samples:
+                if num >= threshold:
+                    total_fwd += 1
+
+            # Check how many samples from the incorrectly predicted would be forwarded
+            for num in incorr_samples:
+                if num >= threshold:
+                    incorr_fwd += 1
+                    total_fwd += 1
+
+            # format and append
+            incorr_fwd = incorr_fwd / total
+            results.append((total_fwd, incorr_fwd))
+
+        return results
+
 
     def test(self, chunk_limit = sys.maxsize, lora = None, tag = "", ppl_token = False):
-        if not self.dataset_chunks:
-            sys.exit(" xx ERROR: Empty dataset!")
 
-        print(f" -- Testing {min(len(self.dataset_chunks), chunk_limit)} chunks", end="")
-        sys.stdout.flush()
+        # Hacky: Ignore passed in dataset and load HellaSWAG
+        prompts, labels = get_hellaswag(100)
 
-        logprob_sum = 0.0
-        logprob_count = 0
+        corr = 0
+        incorr = 0
+        correct_certs = []
+        incorrect_certs = []
 
-        chunk_count = 0
+        for prompt, label in zip(prompts, labels):
+            scores = []
 
-        for chunk in self.dataset_chunks:
+            for q, a in prompt:
+                self._begin()
 
-            self._begin()
+                input_ids = self._tokenize(q+a)
+                answer_ids = self._tokenize(a)
 
-            input_ids = chunk[:, :-1]
-            target_ids = chunk[:, 1:]
-
-            if ppl_token:
-                logits_s = []
-                for i in range(input_ids.shape[-1]):
-                    logits_t = self._next_logits(input_ids[:, i : i + 1], lora, last_id_only = False)
-                    logits_s.append(logits_t)
-                logits = torch.cat(logits_s, dim = 1)
-            else:
                 logits = self._next_logits(input_ids, lora, last_id_only = False)
+                log_probs = F.log_softmax(logits, dim=-1)
 
-            log_probs = F.log_softmax(logits, dim=-1)
-            token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
+                # log probs of answers
+                relevant_log_probs = log_probs[:, -answer_ids.shape[1]-1:-1]
 
-            logprob_sum += token_log_probs.sum().item()
-            logprob_count += target_ids.numel()
+                # compute answer prob, average over seq length
+                seq_prob = 0
+                for i in range(answer_ids.shape[-1]):
+                    correct_token = int(answer_ids[0, i])
+                    seq_prob += float(relevant_log_probs[0, i, correct_token])
+                scores.append(seq_prob / float(answer_ids.shape[-1]))
 
-            if chunk_count % 10 == 0:
-                print(".", end = "")
-                sys.stdout.flush()
+            # compute certainty score, TODO: Try different ones here
+            cert = self.certainty(scores)
 
-            chunk_count += 1
-            if chunk_limit and chunk_count >= chunk_limit:
-                break
+            # check if prediction correct
+            if np.argmax(scores) == label:
+                corr += 1
+                correct_certs.append(cert)
+            else:
+                incorr += 1
+                incorrect_certs.append(cert)
 
-        mean_log_prob = logprob_sum / logprob_count
-        perplexity = math.exp(-mean_log_prob)
-
-        print("")
-        print(f" ** Perplexity{tag}: {perplexity:.4f}")
+        # Compute how many correctly forwarded etc
+        results = self.evaluate_thresholding(correct_certs, incorrect_certs)
+        print("====================================")
+        print("Samples forwarded:", "\tFrac of errors forwarded:")
+        for total_f, incorr_f in results:
+            print(f"{total_f}\t\t\t{incorr_f}")
+        print("====================================")
+        print(f"Overall accuracy on task: {corr/(incorr+corr)}")
 
 
 def add_args(parser):
@@ -177,4 +232,3 @@ def post_parse(args):
     print(f" -- - Min. chunk size: {args.perplexity_chunk_min}")
     print(f" -- - Key: {args.perplexity_json_key}")
     if args.perplexity_token: print("f -- - Per-token mode")
-
