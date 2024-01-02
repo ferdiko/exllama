@@ -1,3 +1,5 @@
+import time
+
 from model import ExLlama, ExLlamaCache, ExLlamaConfig
 from tokenizer import ExLlamaTokenizer
 from generator import ExLlamaGenerator
@@ -17,25 +19,29 @@ Passing in model, cache, tokenizer is a total hack because we don't want to have
 '''
 
 class Perplexity:
-    def __init__(self, method="default", model = None, cache = None, tokenizer = None):
+    def __init__(self, method="default", model1 = None, model2 = None, cache1 = None, cache2 = None, tokenizer = None):
         # This needs to be loaded by calling .load()
         self.dataset_chunks = []
 
-        self.model = model
-        self.cache = cache
+        self.model1 = model1
+        self.model2 = model2
+        self.cache1 = cache1
+        self.cache2 = cache2
         self.tokenizer = tokenizer
 
         self._begin()
 
 
     def _begin(self):
-        if self.cache is None:
-            self.cache = ExLlamaCache(self.model)
+        if self.cache1 is None:
+            self.cache1 = ExLlamaCache(self.model1)
+            self.cache2 = ExLlamaCache(self.model2)
         else:
-            self.cache.current_seq_len = 0
+            self.cache1.current_seq_len = 0
+            self.cache2.current_seq_len = 0
 
 
-    def _next_logits(self, input_ids, apply_lora, last_id_only = True):
+    def _next_logits1(self, input_ids, apply_lora, last_id_only = True):
         # n_logits = []
         # a = 0
         # while a < input_ids.shape[-1]:
@@ -45,7 +51,20 @@ class Perplexity:
         #
         # return torch.cat(n_logits, dim = 1)
 
-        return self.model.forward(input_ids, self.cache, last_id_only, lora = apply_lora)
+        return self.model1.forward(input_ids, self.cache1, last_id_only, lora = apply_lora)
+
+
+    def _next_logits2(self, input_ids, apply_lora, last_id_only = True):
+        # n_logits = []
+        # a = 0
+        # while a < input_ids.shape[-1]:
+        #     b = min(input_ids.shape[-1], a + 2048)
+        #     n_logits.append(self.model.forward(input_ids[:, a:b], self.cache, last_id_only, lora = apply_lora))
+        #     a = b
+        #
+        # return torch.cat(n_logits, dim = 1)
+
+        return self.model2.forward(input_ids, self.cache2, last_id_only, lora = apply_lora)
 
 
     def _tokenize(self, text):
@@ -159,7 +178,14 @@ class Perplexity:
                 input_ids = self._tokenize(q+a)
                 answer_ids = self._tokenize(a)
 
-                logits = self._next_logits(input_ids, lora, last_id_only = False)
+                start = time.time()
+                logits1 = self._next_logits1(input_ids, lora, last_id_only = False)
+                end_m1 = time.time()
+                logits2 = self._next_logits1(input_ids, lora, last_id_only = False)
+                end_m2 = time.time()
+                print("runtimes:", end_m1-start, "\t", end_m2-start)
+                continue
+
                 log_probs = F.log_softmax(logits, dim=-1)
 
                 # log probs of answers

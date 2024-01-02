@@ -126,7 +126,13 @@ model_init.set_globals(args)
 
 config = model_init.make_config(args)
 
-model = timer("Load model", lambda: ExLlama(config))
+# Load two models
+model1 = timer("Load model 1", lambda: ExLlama(config))
+
+# Also load 7b model
+config.model_path = "/home/gridsan/fkossmann/models/LLaMa-7B-GPTQ"
+model2 = timer("Load model 2", lambda: ExLlama(config))
+
 tokenizer = timer("Load tokenizer", lambda: ExLlamaTokenizer(args.tokenizer))
 
 model_init.print_stats(model)
@@ -204,7 +210,7 @@ if args.perf:
 
 if args.perplexity:
 
-    ppl = Perplexity(args.perplexity, model, cache, tokenizer)
+    ppl = Perplexity(args.perplexity, model1, model2, cache, tokenizer)
 
     print(" -- Loading dataset...")
 
