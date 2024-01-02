@@ -183,7 +183,7 @@ class Perplexity:
                 end_m1 = time.time()
                 logits2 = self._next_logits1(input_ids, lora, last_id_only = False)
                 end_m2 = time.time()
-                print("runtimes:", end_m1-start, "\t", end_m2-start)
+                print("runtimes:", end_m1-start, "\t", end_m2-end_m1)
                 continue
 
                 log_probs = F.log_softmax(logits, dim=-1)
@@ -197,7 +197,8 @@ class Perplexity:
                     correct_token = int(answer_ids[0, i])
                     seq_prob += float(relevant_log_probs[0, i, correct_token])
                 scores.append(seq_prob / float(answer_ids.shape[-1]))
-
+            
+            continue
             # compute certainty score, TODO: Try different ones here
             cert = self.certainty(scores)
 

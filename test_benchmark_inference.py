@@ -130,17 +130,22 @@ config = model_init.make_config(args)
 model1 = timer("Load model 1", lambda: ExLlama(config))
 
 # Also load 7b model
-config.model_path = "/home/gridsan/fkossmann/models/LLaMa-7B-GPTQ"
+#config.model_path = "/home/gridsan/fkossmann/models/LLaMa-7B-GPTQ/model.safetensors"
+#model2 = timer("Load model 2", lambda: ExLlama(config))
+args.config = "/home/gridsan/fkossmann/models/LLaMa-7B-GPTQ/config.json"
+args.model = "/home/gridsan/fkossmann/models/LLaMa-7B-GPTQ/model.safetensors"
+config = model_init.make_config(args)
 model2 = timer("Load model 2", lambda: ExLlama(config))
 
 tokenizer = timer("Load tokenizer", lambda: ExLlamaTokenizer(args.tokenizer))
 
-model_init.print_stats(model)
+#model_init.print_stats(model1)
 
 torch.cuda.reset_peak_memory_stats("cuda")
 mem("Model")
 
-cache = ExLlamaCache(model)
+cache1 = ExLlamaCache(model1)
+cache2 = ExLlamaCache(model2)
 mem("Cache")
 
 # Load LoRA
@@ -210,7 +215,7 @@ if args.perf:
 
 if args.perplexity:
 
-    ppl = Perplexity(args.perplexity, model1, model2, cache, tokenizer)
+    ppl = Perplexity(args.perplexity, model1, model2, cache1, cache2,  tokenizer)
 
     print(" -- Loading dataset...")
 
@@ -221,7 +226,7 @@ if args.perplexity:
              minlength = args.perplexity_chunk_min,
              json_key = args.perplexity_json_key)
 
-    begin()
+    #begin()
 
     ppl.test(args.perplexity_chunk_num,
              lora = lora,

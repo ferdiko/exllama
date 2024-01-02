@@ -740,6 +740,7 @@ class ExLlama:
         head_size = 0
 
         for path in model_path:
+            print("DEBUG PATH:", path)
             with safe_open(path, framework = "pt", device = "cpu") as f:
                 for key in f.keys():
 
