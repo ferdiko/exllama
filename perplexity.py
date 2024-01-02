@@ -181,7 +181,7 @@ class Perplexity:
                 start = time.time()
                 logits1 = self._next_logits1(input_ids, lora, last_id_only = False)
                 end_m1 = time.time()
-                logits2 = self._next_logits1(input_ids, lora, last_id_only = False)
+                logits2 = self._next_logits2(input_ids, lora, last_id_only = False)
                 end_m2 = time.time()
                 print("runtimes:", end_m1-start, "\t", end_m2-end_m1)
                 continue
