@@ -8,7 +8,8 @@ class ExLlamaGenerator:
 
     class Settings:
 
-        temperature = 0.95
+        # temperature = 0.95
+        temperature = 0.000001
         top_k = 40                              # consider the most probable top_k samples, 0 to disable top_k sampling
         top_p = 0.65                            # consider tokens up to a cumulative probabiltiy of top_p, 0.0 to disable top_p sampling
         min_p = 0.0                             # Do not consider tokens with probability less than this

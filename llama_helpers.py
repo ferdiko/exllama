@@ -5,8 +5,10 @@ import json
 
 def get_hellaswag(num_lines=5):
     # TODO: Provide path to HellaSWAG jsonl below
-    with open("/home/gridsan/fkossmann/ensemble_serve/workloads/llama/hellaswag/data/hellaswag_train.jsonl", "r") as f:
+    with open("/home/haghigh/Documents/MIT_ENSEMBLE_SERVE/hella_swag_data/hellaswag/data/hellaswag_train.jsonl", "r") as f:
         lines = f.readlines()
+
+    print("Hellaswag length: ", len(lines))
 
     cnt = 0
     prompts = []

@@ -10,7 +10,9 @@ import torch
 import torch.nn.functional as F
 from llama_helpers import *
 import numpy as np
+import time 
 
+import matplotlib.pyplot as plt 
 
 '''
 Passing in model, cache, tokenizer is a total hack because we don't want to have to reinitialize (or move all the globals into a shared state model)
@@ -93,10 +95,35 @@ class Perplexity:
 
     @staticmethod
     def certainty(preds):
-        scores_sorted = sorted(preds)
-        scores_sorted = np.array(scores_sorted)
-        probabilities = scores_sorted / scores_sorted.sum()
-        return probabilities[3] - probabilities[2]
+        # scores_sorted = sorted(preds)
+        # scores_sorted = np.array(scores_sorted)
+        # probabilities = scores_sorted / scores_sorted.sum()
+        # return probabilities[3] - probabilities[2]
+
+        # scores_sorted = sorted(preds)
+        # scores_sorted = np.array(scores_sorted)
+        # probabilities = scores_sorted / scores_sorted.sum()
+        # print(probabilities)
+        # print(probabilities[1], probabilities[0])
+        # return probabilities[1] - probabilities[0]
+
+        preds = np.array(preds)
+        probabilities = np.exp(preds) / np.sum(np.exp(preds), axis=-1)
+        entropy = -np.sum(probabilities * np.log(probabilities + 1e-2), axis=-1)
+        print(probabilities)
+        # print(entropy)
+        # return entropy
+        # return probabilities[0]
+        return entropy, probabilities
+
+        # entropy = -np.sum(probabilities * np.log(probabilities))
+        # entropy = -np.sum(preds * np.log(preds))
+        # print(entropy)
+
+        # return entropy
+
+    
+
 
 
     @staticmethod
@@ -114,6 +141,7 @@ class Perplexity:
         # Generate a range of thresholds to test
         minv = min(min(corr_samples), min(incorr_samples))
         maxv = max(max(corr_samples), max(incorr_samples))
+        print("min max: ", minv,maxv)
         thresholds = np.linspace(minv, maxv, num_threshs)
 
         results = []
@@ -137,10 +165,15 @@ class Perplexity:
             incorr_fwd = incorr_fwd / total
             results.append((total_fwd, incorr_fwd))
 
+        total_fwd, incorr_fwd = zip(*results)
+        # plt.scatter(total_fwd, incorr_fwd)
+        # plt.show()
+
         return results
 
 
     def test(self, chunk_limit = sys.maxsize, lora = None, tag = "", ppl_token = False):
+        
 
         # Hacky: Ignore passed in dataset and load HellaSWAG
         prompts, labels = get_hellaswag(100)
@@ -150,8 +183,17 @@ class Perplexity:
         correct_certs = []
         incorrect_certs = []
 
+        combined_certs = [] 
+
+        i = 0
+        # total_time = 0 
+        # start_time = 0
+        inference_times = []
         for prompt, label in zip(prompts, labels):
             scores = []
+            # if i >= 5:
+            #     start_time = time.time()
+            start_time = time.time()
 
             for q, a in prompt:
                 self._begin()
@@ -173,7 +215,10 @@ class Perplexity:
                 scores.append(seq_prob / float(answer_ids.shape[-1]))
 
             # compute certainty score, TODO: Try different ones here
-            cert = self.certainty(scores)
+            cert, probabilities = self.certainty(scores)
+
+            # print(type(cert))
+            combined_certs.append(probabilities.tolist())
 
             # check if prediction correct
             if np.argmax(scores) == label:
@@ -183,6 +228,24 @@ class Perplexity:
                 incorr += 1
                 incorrect_certs.append(cert)
 
+            # if i >= 5:
+            #     end_time = time.time()
+            #     assert start_time != 0
+            #     total_time += end_time - start_time
+            #     print(end_time - start_time, total_time)
+            end_time = time.time()
+            inference_times.append(end_time - start_time)
+
+            i += 1
+        
+        total_time = sum(inference_times)
+        total_time_warmup = sum(inference_times[5:])
+
+        print("Total time: ", total_time)
+        print("Time per inference: ", total_time /  (len(labels)))
+        print("Total time (with warmup): ", total_time_warmup)
+        print("Time per inference (with warmup): ", total_time_warmup /  (len(labels) - 5))
+
         # Compute how many correctly forwarded etc
         results = self.evaluate_thresholding(correct_certs, incorrect_certs)
         print("====================================")
@@ -191,6 +254,14 @@ class Perplexity:
             print(f"{total_f}\t\t\t{incorr_f}")
         print("====================================")
         print(f"Overall accuracy on task: {corr/(incorr+corr)}")
+
+        if False:
+            # write to file certainties
+            with open('certainties_13b_1000.json', 'w') as file:
+                json.dump(combined_certs, file)
+
+            with open('true_vals_13b_1000.json', 'w') as file:
+                json.dump(labels, file)
 
 
 def add_args(parser):
